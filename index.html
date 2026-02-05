@@ -3,95 +3,158 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>XstepPulse</title>
+    <title>XstepPulse 3D</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#000000">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black">
     
     <style>
-        /* Custom Scrollbar for Green/Black theme */
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #111; }
-        ::-webkit-scrollbar-thumb { background: #22c55e; border-radius: 4px; }
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@100;400;800&display=swap');
+        
+        body { font-family: 'JetBrains Mono', monospace; background-color: #000000; overflow: hidden; }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #050505; }
+        ::-webkit-scrollbar-thumb { background: #15803d; border-radius: 3px; }
+
+        /* Utilities */
+        .glass-panel {
+            background: rgba(10, 10, 10, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(34, 197, 94, 0.2);
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+        .neon-text { text-shadow: 0 0 8px rgba(34, 197, 94, 0.6); }
         .hidden-view { display: none !important; }
-        .active-nav { color: #22c55e; border-bottom: 2px solid #22c55e; }
+        
+        /* 3D Canvas Container */
+        #canvas-container {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 0;
+            pointer-events: none; /* Let clicks pass through */
+        }
+        
+        .active-nav { 
+            color: #22c55e; 
+            border-bottom: 2px solid #22c55e;
+            background: rgba(34,197,94,0.05);
+        }
     </style>
 </head>
-<body class="bg-black text-green-500 font-mono h-screen flex flex-col overflow-hidden selection:bg-green-900 selection:text-white">
+<body class="text-green-500 h-screen w-screen flex flex-col relative">
 
-    <header class="w-full max-w-md mx-auto p-4 flex justify-between items-center bg-gray-900/50 backdrop-blur-md border-b border-green-900 z-10">
-        <h1 class="text-2xl font-black tracking-tighter italic">Xstep<span class="text-white">Pulse</span></h1>
-        <div class="flex space-x-2">
-            <div id="liveIndicator" class="w-2 h-2 rounded-full bg-gray-600 animate-pulse"></div>
+    <div id="canvas-container"></div>
+
+    <header class="w-full p-4 flex justify-between items-center z-20 glass-panel border-b-0">
+        <div class="flex flex-col">
+            <h1 class="text-xl md:text-2xl font-black italic tracking-tighter">Xstep<span class="text-white">Pulse</span><span class="text-xs align-top text-green-700 ml-1">3D</span></h1>
+            <div id="realTimeClock" class="text-xs text-gray-400 font-bold tracking-widest mt-1">--:--:--</div>
+        </div>
+        <div class="flex items-center gap-3">
+             <div id="goalStatus" class="hidden text-xs bg-green-900/50 text-green-300 px-2 py-1 rounded border border-green-700 animate-pulse">
+                TARGET SET
+            </div>
+            <div id="liveIndicator" class="w-2 h-2 rounded-full bg-gray-600"></div>
         </div>
     </header>
 
-    <nav class="w-full max-w-md mx-auto flex bg-black border-b border-green-900/30">
-        <button id="navTracker" class="flex-1 py-3 text-sm font-bold uppercase tracking-widest text-gray-500 hover:text-green-400 transition active-nav">Tracker</button>
-        <button id="navDashboard" class="flex-1 py-3 text-sm font-bold uppercase tracking-widest text-gray-500 hover:text-green-400 transition">History</button>
+    <nav class="w-full flex z-20 border-b border-green-900/30 bg-black/80 backdrop-blur">
+        <button id="navTracker" class="flex-1 py-4 text-xs md:text-sm font-bold uppercase tracking-widest text-gray-500 hover:text-green-400 transition active-nav">Monitor</button>
+        <button id="navDashboard" class="flex-1 py-4 text-xs md:text-sm font-bold uppercase tracking-widest text-gray-500 hover:text-green-400 transition">Data Logs</button>
     </nav>
 
-    <main class="flex-1 w-full max-w-md mx-auto relative overflow-y-auto bg-black">
+    <main class="flex-1 relative z-10 overflow-hidden flex flex-col md:flex-row">
         
-        <div id="viewTracker" class="p-6 flex flex-col items-center h-full">
+        <div id="viewTracker" class="w-full h-full flex flex-col md:flex-row relative">
             
-            <div class="relative w-64 h-64 flex items-center justify-center mb-8">
-                <svg class="absolute w-full h-full transform -rotate-90">
-                    <circle cx="128" cy="128" r="120" stroke="currentColor" stroke-width="2" class="text-gray-900" fill="transparent" />
-                    <circle id="progressRing" cx="128" cy="128" r="120" stroke="currentColor" stroke-width="4" class="text-green-500 drop-shadow-[0_0_10px_rgba(34,197,94,0.5)]" fill="transparent" stroke-dasharray="754" stroke-dashoffset="754" stroke-linecap="round" />
-                </svg>
-                <div class="text-center z-10">
-                    <div id="timerDisplay" class="text-4xl font-bold text-white tracking-widest mb-1">00:00:00</div>
-                    <div class="text-green-600 text-xs uppercase tracking-[0.2em]">Duration</div>
+            <div class="hidden md:flex flex-1 items-center justify-center pointer-events-none">
                 </div>
-            </div>
 
-            <div class="grid grid-cols-2 gap-4 w-full mb-8">
-                <div class="bg-gray-900/40 p-4 rounded-xl border border-green-900/30 text-center">
-                    <div id="stepDisplay" class="text-5xl font-black text-white mb-1">0</div>
-                    <div class="text-green-500 text-xs uppercase tracking-widest">Steps</div>
+            <div class="flex-1 flex flex-col p-4 md:p-8 overflow-y-auto h-full glass-panel md:border-l md:max-w-md md:ml-auto bg-black/60">
+                
+                <div class="text-center mb-8 mt-4">
+                    <div class="text-green-600 text-[10px] uppercase tracking-[0.3em] mb-1">Session Duration</div>
+                    <div id="timerDisplay" class="text-4xl md:text-5xl font-black text-white tracking-widest neon-text font-variant-numeric">
+                        00:00:00<span class="text-lg text-gray-500">.00</span>
+                    </div>
                 </div>
-                <div class="bg-gray-900/40 p-4 rounded-xl border border-green-900/30 text-center flex flex-col justify-center">
-                    <div id="distanceDisplay" class="text-2xl font-bold text-white mb-1">0.00</div>
-                    <div class="text-green-500 text-xs uppercase tracking-widest">Km Traveled</div>
-                </div>
-            </div>
 
-            <div class="w-full grid grid-cols-2 gap-4 mt-auto">
-                <button id="toggleBtn" class="bg-green-600 hover:bg-green-500 text-black py-4 rounded-lg font-bold uppercase tracking-wider transition shadow-[0_0_20px_rgba(34,197,94,0.2)]">
-                    Start
-                </button>
-                <button id="resetBtn" class="bg-gray-800 hover:bg-gray-700 text-white py-4 rounded-lg font-bold uppercase tracking-wider border border-gray-700 transition">
-                    Stop & Save
-                </button>
-            </div>
-            
-            <div id="sensorRequest" class="hidden absolute inset-0 bg-black/95 z-50 flex flex-col items-center justify-center text-center p-6">
-                <p class="text-white mb-6 text-lg">XstepPulse needs motion access to count your steps.</p>
-                <button id="grantSensorBtn" class="bg-green-500 text-black font-bold py-3 px-8 rounded-full shadow-[0_0_15px_rgba(34,197,94,0.6)]">
-                    Enable Motion Sensor
-                </button>
+                <div class="grid grid-cols-2 gap-4 mb-6">
+                    <div class="bg-gray-900/60 p-4 rounded border border-green-900/50 text-center hover:border-green-500/50 transition duration-300">
+                        <div id="stepDisplay" class="text-4xl font-bold text-white mb-1">0</div>
+                        <div class="text-green-500 text-[10px] uppercase tracking-widest">Steps Detected</div>
+                    </div>
+                    <div class="bg-gray-900/60 p-4 rounded border border-green-900/50 text-center hover:border-green-500/50 transition duration-300 flex flex-col justify-center">
+                        <div id="distanceDisplay" class="text-2xl font-bold text-white mb-1">0.00</div>
+                        <div class="text-green-500 text-[10px] uppercase tracking-widest">Kilometers</div>
+                    </div>
+                </div>
+
+                <div class="mb-6 bg-gray-900/40 p-3 rounded border border-gray-800">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-xs uppercase font-bold text-gray-400">Auto-Stop Goal</span>
+                        <label class="inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="goalToggle" class="sr-only peer">
+                            <div class="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-green-600 relative"></div>
+                        </label>
+                    </div>
+                    
+                    <div id="goalInputs" class="hidden transition-all duration-300 space-y-2">
+                        <div class="grid grid-cols-2 gap-2">
+                            <input type="number" id="goalSteps" placeholder="Target Steps" class="bg-black border border-green-900 text-white text-xs p-2 rounded focus:border-green-500 outline-none">
+                            <input type="number" id="goalMinutes" placeholder="Target Mins" class="bg-black border border-green-900 text-white text-xs p-2 rounded focus:border-green-500 outline-none">
+                        </div>
+                        <p class="text-[10px] text-gray-500 italic text-center">System will auto-save when either target is met.</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4 mt-auto">
+                    <button id="toggleBtn" class="relative overflow-hidden group bg-green-600 hover:bg-green-500 text-black py-4 rounded font-black uppercase tracking-wider transition shadow-[0_0_20px_rgba(34,197,94,0.3)]">
+                        <span class="relative z-10">Start System</span>
+                        <div class="absolute inset-0 h-full w-full scale-0 rounded transition-all duration-300 group-hover:scale-100 group-hover:bg-green-400/30"></div>
+                    </button>
+                    <button id="resetBtn" class="bg-transparent border border-gray-700 hover:border-red-500 hover:text-red-500 text-gray-300 py-4 rounded font-bold uppercase tracking-wider transition">
+                        Stop & Save
+                    </button>
+                </div>
+
             </div>
         </div>
 
-        <div id="viewDashboard" class="hidden-view p-6 h-full">
-            <div class="flex justify-between items-end mb-6 border-b border-gray-800 pb-2">
-                <h2 class="text-xl text-white font-bold">Activity Log</h2>
-                <button id="clearHistoryBtn" class="text-xs text-red-500 hover:text-red-400 uppercase tracking-wider">Clear All</button>
+        <div id="viewDashboard" class="hidden-view w-full h-full p-4 md:p-10 overflow-y-auto bg-black/90 z-30">
+            <div class="max-w-4xl mx-auto">
+                <div class="flex justify-between items-end mb-8 border-b border-green-900 pb-4">
+                    <h2 class="text-2xl text-white font-bold tracking-tighter">Session Logs</h2>
+                    <button id="clearHistoryBtn" class="text-xs text-red-600 hover:text-red-400 border border-red-900 hover:border-red-500 px-3 py-1 rounded transition uppercase">Purge Database</button>
+                </div>
+                <ul id="historyList" class="space-y-4 pb-20">
+                    </ul>
             </div>
-            
-            <ul id="historyList" class="space-y-3 pb-20">
-                <li class="text-gray-600 text-center text-sm py-10 italic">No history yet. Start walking!</li>
-            </ul>
         </div>
+
+        <div id="sensorRequest" class="hidden absolute inset-0 bg-black/95 z-50 flex flex-col items-center justify-center text-center p-6 backdrop-blur-xl">
+            <div class="w-16 h-16 border-2 border-green-500 rounded-full flex items-center justify-center mb-6 animate-bounce">
+                <svg class="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+            </div>
+            <h3 class="text-white text-xl font-bold mb-2">Sensor Access Required</h3>
+            <p class="text-gray-400 mb-8 max-w-xs text-sm">To track your steps and animate the 3D core, we need access to your device's accelerometer.</p>
+            <button id="grantSensorBtn" class="bg-green-600 text-black font-bold py-3 px-10 rounded shadow-[0_0_25px_rgba(34,197,94,0.4)] hover:scale-105 transition">
+                Initialize Sensors
+            </button>
+        </div>
+
     </main>
 
-    <script src="./js/index.js"></script>
+    <script src="js/index.js"></script>
     <script>
+        // Register Service Worker for Offline capability
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js').catch(err => console.error('SW Error:', err));
+            navigator.serviceWorker.register('sw.js')
+                .then(() => console.log('SW Registered'))
+                .catch(err => console.error('SW Error:', err));
         }
     </script>
 </body>

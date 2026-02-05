@@ -1,10 +1,11 @@
-const CACHE_NAME = 'xsteppulse-v1';
+const CACHE_NAME = 'xsteppulse-3d-v2';
 const ASSETS = [
     './',
     './index.html',
-    './app.js',
+    './js/index.js',
     './manifest.json',
-    'https://cdn.tailwindcss.com' // Caching external CDN (Best effort)
+    'https://cdn.tailwindcss.com',
+    'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js' 
 ];
 
 self.addEventListener('install', (event) => {
