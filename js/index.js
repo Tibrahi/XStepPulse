@@ -5,11 +5,13 @@ const STATE = {
     elapsedTime: 0,
     steps: 0,
     timerInterval: null,
-    clockInterval: null,
     wakeLock: null,
     db: null,
     goal: { active: false, steps: 0, minutes: 0 },
-    lastStepTime: 0
+    lastStepTime: 0,
+    // Pedometer State
+    gravity: { x: 0, y: 0, z: 0 },
+    lastLinearAcc: 0
 };
 
 // UI Elements
@@ -25,10 +27,10 @@ const ui = {
     goalStatus: document.getElementById('goalStatus'),
     goalToggle: document.getElementById('goalToggle'),
     goalInputs: document.getElementById('goalInputs'),
-    inputs: {
-        steps: document.getElementById('goalSteps'),
-        mins: document.getElementById('goalMinutes')
-    },
+    // New Inputs
+    inputSteps: document.getElementById('goalSteps'),
+    wheelMinutes: document.getElementById('goalMinutesWheel'),
+    
     views: {
         tracker: document.getElementById('viewTracker'),
         dashboard: document.getElementById('viewDashboard')
@@ -37,61 +39,85 @@ const ui = {
         tracker: document.getElementById('navTracker'),
         dashboard: document.getElementById('navDashboard')
     },
-    historyList: document.getElementById('historyList')
+    historyList: document.getElementById('historyList'),
+    // Custom Modals
+    modal: document.getElementById('customModal'),
+    modalTitle: document.getElementById('modalTitle'),
+    modalMsg: document.getElementById('modalMessage'),
+    modalConfirmBtn: document.getElementById('modalConfirm'),
+    modalCancelBtn: document.getElementById('modalCancel'),
+    toast: document.getElementById('toast'),
+    toastTitle: document.getElementById('toastTitle'),
+    toastMsg: document.getElementById('toastMessage')
 };
 
-/* --- 1. THREE.JS VISUALIZATION --- */
-// We create a "Core" sphere that pulses when steps happen
+let modalCallback = null;
+
+/* --- 1. UTILITIES & NOTIFICATIONS --- */
+
+function updateRealTimeClock() {
+    ui.realTime.textContent = new Date().toLocaleTimeString();
+}
+
+// Custom Toast Notification
+function showToast(title, msg) {
+    ui.toastTitle.textContent = title;
+    ui.toastMsg.textContent = msg;
+    ui.toast.classList.add('toast-visible');
+    
+    // Auto hide after 3s
+    setTimeout(() => {
+        ui.toast.classList.remove('toast-visible');
+    }, 3500);
+}
+
+// Custom Confirmation Modal
+function showConfirmation(title, msg, onConfirm) {
+    ui.modalTitle.textContent = title;
+    ui.modalMsg.textContent = msg;
+    ui.modal.classList.remove('hidden');
+    modalCallback = onConfirm;
+}
+
+function hideModal() {
+    ui.modal.classList.add('hidden');
+    modalCallback = null;
+}
+
+ui.modalCancelBtn.onclick = hideModal;
+ui.modalConfirmBtn.onclick = () => {
+    if (modalCallback) modalCallback();
+    hideModal();
+};
+
+/* --- 2. THREE.JS VISUALIZATION --- */
 let scene, camera, renderer, coreMesh, wireMesh;
 
 function initThreeJS() {
     const container = document.getElementById('canvas-container');
-    
-    // Scene setup
     scene = new THREE.Scene();
-    // Use minimal fog for depth
     scene.fog = new THREE.FogExp2(0x000000, 0.02);
 
-    // Camera
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.z = 5;
 
-    // Renderer
     renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
     container.appendChild(renderer.domElement);
 
-    // Objects: A Wireframe Icosahedron (The "Core")
+    // Objects
     const geometry = new THREE.IcosahedronGeometry(2, 1);
-    
-    // Material 1: Glowing Green Wireframe
-    const wireMat = new THREE.MeshBasicMaterial({ 
-        color: 0x22c55e, 
-        wireframe: true,
-        transparent: true,
-        opacity: 0.3
-    });
-    
-    // Material 2: Inner Core
-    const coreMat = new THREE.MeshBasicMaterial({
-        color: 0x000000
-    });
+    const wireMat = new THREE.MeshBasicMaterial({ color: 0x22c55e, wireframe: true, transparent: true, opacity: 0.3 });
+    const coreMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
 
     wireMesh = new THREE.Mesh(geometry, wireMat);
     coreMesh = new THREE.Mesh(geometry, coreMat);
-    
-    // Group them
     scene.add(wireMesh);
     scene.add(coreMesh);
-
-    // Lights (ambient)
-    const ambientLight = new THREE.AmbientLight(0x404040);
-    scene.add(ambientLight);
+    scene.add(new THREE.AmbientLight(0x404040));
 
     animateThreeJS();
-
-    // Handle Resize
     window.addEventListener('resize', onWindowResize, false);
 }
 
@@ -103,99 +129,117 @@ function onWindowResize() {
 
 function animateThreeJS() {
     requestAnimationFrame(animateThreeJS);
-
-    // Idle Rotation
     wireMesh.rotation.x += 0.002;
     wireMesh.rotation.y += 0.003;
-
-    // Pulse Effect Decay (Return to scale 1)
     if (wireMesh.scale.x > 1) {
-        wireMesh.scale.x -= 0.03;
-        wireMesh.scale.y -= 0.03;
-        wireMesh.scale.z -= 0.03;
+        wireMesh.scale.x -= 0.03; wireMesh.scale.y -= 0.03; wireMesh.scale.z -= 0.03;
     } else {
-        // Ensure it stays at 1 minimum
         wireMesh.scale.set(1, 1, 1);
     }
-    
     renderer.render(scene, camera);
 }
 
-// Trigger this on step
 function triggerVisualPulse() {
     if(wireMesh) {
-        // Bump scale up
         wireMesh.scale.set(1.4, 1.4, 1.4);
-        // Randomize rotation speed briefly for effect? (Simpler is better for performance)
         wireMesh.rotation.y += 0.5;
     }
 }
 
-
-/* --- 2. PEDOMETER LOGIC --- */
-let lastMag = 0;
-const THRESHOLD = 12; 
+/* --- 3. PEDOMETER LOGIC (SENSITIVE) --- */
+// Using Low Pass Filter to remove Gravity
+const ALPHA = 0.8; // Filter constant
+const STEP_THRESHOLD = 1.2; // Linear acceleration (m/s^2) threshold for walking
 
 function handleMotion(event) {
     if (!STATE.isTracking) return;
 
-    const acc = event.accelerationIncludingGravity;
-    if (!acc) return;
+    // Get raw data
+    const x = event.accelerationIncludingGravity.x || 0;
+    const y = event.accelerationIncludingGravity.y || 0;
+    const z = event.accelerationIncludingGravity.z || 0;
 
-    const magnitude = Math.sqrt(acc.x*acc.x + acc.y*acc.y + acc.z*acc.z);
-    const delta = Math.abs(magnitude - lastMag);
+    // Isolate Gravity (Low Pass Filter)
+    STATE.gravity.x = ALPHA * STATE.gravity.x + (1 - ALPHA) * x;
+    STATE.gravity.y = ALPHA * STATE.gravity.y + (1 - ALPHA) * y;
+    STATE.gravity.z = ALPHA * STATE.gravity.z + (1 - ALPHA) * z;
+
+    // Remove Gravity (High Pass Filter) to get Linear Acceleration
+    const linX = x - STATE.gravity.x;
+    const linY = y - STATE.gravity.y;
+    const linZ = z - STATE.gravity.z;
+
+    // Calculate magnitude of linear acceleration
+    const linearMagnitude = Math.sqrt(linX*linX + linY*linY + linZ*linZ);
+
+    // Peak detection logic
+    const now = Date.now();
+    if (linearMagnitude > STEP_THRESHOLD && (now - STATE.lastStepTime > 350)) {
+        // Confirm it's a peak (rising edge) - Simplified for this demo
+        STATE.steps++;
+        STATE.lastStepTime = now;
+        updateUI();
+        triggerVisualPulse();
+        checkGoals();
+    }
+}
+
+/* --- 4. WHEEL PICKER LOGIC --- */
+function initWheelPicker() {
+    const wheel = ui.wheelMinutes;
+    // Populate 1 to 120 minutes
+    for (let i = 1; i <= 120; i++) {
+        const li = document.createElement('li');
+        li.className = "snap-center py-2 cursor-pointer hover:text-green-400";
+        li.textContent = i;
+        li.dataset.val = i;
+        li.onclick = function() {
+            // Scroll to this element
+            wheel.scrollTo({ top: this.offsetTop - wheel.offsetHeight/2 + this.offsetHeight/2, behavior: 'smooth' });
+        }
+        wheel.appendChild(li);
+    }
+
+    // Add padding elements at bottom to allow last item to hit center
+    const spacer = document.createElement('li');
+    spacer.className = "h-10";
+    wheel.appendChild(spacer);
+}
+
+function getWheelValue() {
+    const wheel = ui.wheelMinutes;
+    const center = wheel.scrollTop + (wheel.offsetHeight / 2);
+    const elements = wheel.getElementsByTagName('li');
     
-    if (delta > 2 && magnitude > THRESHOLD) {
-        const now = Date.now();
-        if (now - STATE.lastStepTime > 350) {
-            STATE.steps++;
-            STATE.lastStepTime = now;
-            updateUI();
-            triggerVisualPulse(); // 3D Effect
-            checkGoals(); // Auto-stop logic
+    let closest = null;
+    let closestDist = Infinity;
+
+    for (let el of elements) {
+        const elCenter = el.offsetTop + (el.offsetHeight / 2);
+        const dist = Math.abs(center - elCenter);
+        if (dist < closestDist) {
+            closestDist = dist;
+            closest = el;
         }
     }
-    lastAcc = acc;
-    lastMag = magnitude;
-}
-
-function checkGoals() {
-    if (!STATE.goal.active) return;
-
-    let met = false;
-    // Check Step Goal
-    if (STATE.goal.steps > 0 && STATE.steps >= STATE.goal.steps) met = true;
     
-    // Check Time Goal (convert ms to mins)
-    const currentMins = STATE.elapsedTime / 60000;
-    if (STATE.goal.minutes > 0 && currentMins >= STATE.goal.minutes) met = true;
-
-    if (met) {
-        // Goal Reached!
-        // Vibrate if available
-        if ("vibrate" in navigator) navigator.vibrate([200, 100, 200]);
-        resetTracking(true); // True = auto saved
-        alert("🎉 GOAL REACHED! Session Auto-Saved.");
-    }
+    if (closest && closest.dataset.val) return parseInt(closest.dataset.val);
+    return 0;
 }
 
-/* --- 3. APP LOGIC --- */
-
-function updateRealTimeClock() {
-    const now = new Date();
-    ui.realTime.textContent = now.toLocaleTimeString();
-}
+/* --- 5. APP LOGIC --- */
 
 function startTracking() {
     // Read Goals
-    const sGoal = parseInt(ui.inputs.steps.value) || 0;
-    const mGoal = parseInt(ui.inputs.mins.value) || 0;
+    const sGoal = parseInt(ui.inputSteps.value) || 0;
+    const mGoal = getWheelValue(); // Get from custom wheel
     
     if (ui.goalToggle.checked && (sGoal > 0 || mGoal > 0)) {
         STATE.goal = { active: true, steps: sGoal, minutes: mGoal };
         ui.goalStatus.classList.remove('hidden');
+        ui.goalStatus.textContent = `TARGET: ${sGoal > 0 ? sGoal + ' steps' : ''} ${mGoal > 0 ? mGoal + ' mins' : ''}`;
     } else {
-        STATE.goal.active = false;
+        STATE.goal = { active: false, steps: 0, minutes: 0 };
         ui.goalStatus.classList.add('hidden');
     }
 
@@ -208,23 +252,32 @@ function startTracking() {
 
     window.addEventListener('devicemotion', handleMotion);
     
-    if ('wakeLock' in navigator) {
-        navigator.wakeLock.request('screen').then(lock => STATE.wakeLock = lock).catch(console.error);
-    }
+    if ('wakeLock' in navigator) navigator.wakeLock.request('screen').then(l => STATE.wakeLock = l).catch(e=>console.log(e));
 
-    // High frequency timer for milliseconds
     STATE.timerInterval = setInterval(() => {
         STATE.elapsedTime = Date.now() - STATE.startTime;
         updateUI();
-        if(STATE.goal.active) checkGoals(); // Check time based goals every tick
-    }, 43); // ~24fps update for timer text
+        if(STATE.goal.active) checkGoals();
+    }, 43);
+}
+
+function checkGoals() {
+    if (!STATE.goal.active) return;
+    let met = false;
+    if (STATE.goal.steps > 0 && STATE.steps >= STATE.goal.steps) met = true;
+    if (STATE.goal.minutes > 0 && (STATE.elapsedTime / 60000) >= STATE.goal.minutes) met = true;
+
+    if (met) {
+        if ("vibrate" in navigator) navigator.vibrate([200, 100, 200]);
+        resetTracking(true); 
+        showToast("GOAL REACHED!", "Session auto-saved successfully.");
+    }
 }
 
 function pauseTracking() {
     STATE.isTracking = false;
     clearInterval(STATE.timerInterval);
     window.removeEventListener('devicemotion', handleMotion);
-    
     if(STATE.wakeLock) STATE.wakeLock.release();
 
     ui.toggleBtn.innerHTML = '<span class="relative z-10">RESUME</span>';
@@ -236,6 +289,9 @@ function resetTracking(autoSave = false) {
     pauseTracking();
     if(autoSave || STATE.steps > 0 || STATE.elapsedTime > 5000) {
         saveSession();
+        if(!autoSave) showToast("Session Saved", "Your data has been logged.");
+    } else if (!autoSave) {
+        showToast("Discarded", "Session was too short to save.");
     }
     
     STATE.elapsedTime = 0;
@@ -248,101 +304,78 @@ function resetTracking(autoSave = false) {
 }
 
 function updateUI() {
-    // Time Formatter (HH:MM:SS.ms)
     const diff = STATE.elapsedTime;
     const h = Math.floor(diff / 3600000);
     const m = Math.floor((diff % 3600000) / 60000);
     const s = Math.floor((diff % 60000) / 1000);
-    const ms = Math.floor((diff % 1000) / 10); // 2 digits
+    const ms = Math.floor((diff % 1000) / 10);
 
     ui.timer.innerHTML = `${pad(h)}:${pad(m)}:${pad(s)}<span class="text-lg text-gray-500">.${pad(ms)}</span>`;
-
     ui.steps.textContent = STATE.steps;
-    const km = (STATE.steps * 0.000762).toFixed(2);
-    ui.dist.textContent = km;
+    ui.dist.textContent = (STATE.steps * 0.000762).toFixed(2);
 }
 
 function pad(n) { return n < 10 ? '0' + n : n; }
 
-/* --- 4. PERSISTENCE (IndexedDB) --- */
+/* --- 6. DATABASE & ACTIONS --- */
+// (Keep existing indexedDB logic but removed alerts)
 const DB_NAME = 'XstepPulseDB';
 function initDB() {
     const request = indexedDB.open(DB_NAME, 1);
     request.onupgradeneeded = (e) => {
         const db = e.target.result;
-        if (!db.objectStoreNames.contains('sessions')) {
-            db.createObjectStore('sessions', { keyPath: 'id', autoIncrement: true });
-        }
+        if (!db.objectStoreNames.contains('sessions')) db.createObjectStore('sessions', { keyPath: 'id', autoIncrement: true });
     };
-    request.onsuccess = (e) => {
-        STATE.db = e.target.result;
-        loadHistory();
-    };
+    request.onsuccess = (e) => { STATE.db = e.target.result; loadHistory(); };
 }
 
 function saveSession() {
     const transaction = STATE.db.transaction(['sessions'], 'readwrite');
     const store = transaction.objectStore('sessions');
-    const session = {
+    store.add({
         date: new Date().toISOString(),
         steps: STATE.steps,
         duration: STATE.elapsedTime,
         distance: (STATE.steps * 0.000762).toFixed(2)
-    };
-    store.add(session);
+    });
     loadHistory();
 }
 
 function loadHistory() {
     if (!STATE.db) return;
-    const transaction = STATE.db.transaction(['sessions'], 'readonly');
-    const store = transaction.objectStore('sessions');
+    const store = STATE.db.transaction(['sessions'], 'readonly').objectStore('sessions');
     const request = store.getAll();
-
     request.onsuccess = () => {
         const data = request.result.reverse();
-        
-        if (data.length === 0) {
-            ui.historyList.innerHTML = '<li class="text-gray-500 text-center py-10 font-mono text-xs">NO DATA FOUND</li>';
-            return;
-        }
-
-        ui.historyList.innerHTML = data.map(item => {
-            const dateObj = new Date(item.date);
-            const date = dateObj.toLocaleDateString();
-            const time = dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-            
-            // Format duration logic
-            const ms = item.duration;
-            const h = Math.floor(ms / 3600000);
-            const m = Math.floor((ms % 3600000) / 60000);
-            const s = Math.floor((ms % 60000) / 1000);
-            const durStr = `${pad(h)}:${pad(m)}:${pad(s)}`;
-
-            return `
+        ui.historyList.innerHTML = data.length === 0 
+            ? '<li class="text-gray-500 text-center py-10 font-mono text-xs">NO DATA FOUND</li>' 
+            : data.map(item => {
+                const d = new Date(item.date);
+                const ms = item.duration;
+                const timeStr = `${pad(Math.floor(ms/3600000))}:${pad(Math.floor((ms%3600000)/60000))}:${pad(Math.floor((ms%60000)/1000))}`;
+                return `
                 <li class="glass-panel rounded p-4 flex justify-between items-center transform hover:scale-[1.01] transition duration-300">
                     <div>
                         <div class="text-white font-black text-xl">${item.steps} <span class="text-[10px] text-green-500 uppercase">Steps</span></div>
-                        <div class="text-gray-500 text-[10px] font-bold tracking-widest">${date} • ${time}</div>
+                        <div class="text-gray-500 text-[10px] font-bold tracking-widest">${d.toLocaleDateString()} • ${d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
                     </div>
                     <div class="text-right">
-                        <div class="text-green-400 font-mono text-sm">${durStr}</div>
+                        <div class="text-green-400 font-mono text-sm">${timeStr}</div>
                         <div class="text-gray-500 text-[10px] uppercase">${item.distance} KM</div>
                     </div>
-                </li>
-            `;
-        }).join('');
+                </li>`;
+            }).join('');
     };
 }
 
 function clearHistory() {
-    const transaction = STATE.db.transaction(['sessions'], 'readwrite');
-    transaction.objectStore('sessions').clear();
+    STATE.db.transaction(['sessions'], 'readwrite').objectStore('sessions').clear();
     loadHistory();
+    showToast("Database Purged", "All logs have been removed.");
 }
 
-/* --- LISTENERS --- */
-// Permission Request
+/* --- EVENT LISTENERS --- */
+
 async function requestPermissions() {
     if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
         try {
@@ -351,7 +384,7 @@ async function requestPermissions() {
                 ui.sensorOverlay.classList.add('hidden');
                 startTracking();
             } else {
-                alert('Motion permission is required for this app to work.');
+                showToast("Error", "Permission Denied. Cannot track steps.");
             }
         } catch (e) { console.error(e); }
     } else {
@@ -360,7 +393,6 @@ async function requestPermissions() {
     }
 }
 
-// Toggle Buttons
 ui.toggleBtn.addEventListener('click', () => {
     if (!STATE.isTracking) {
         if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function' && !STATE.permissionGranted) {
@@ -379,44 +411,42 @@ document.getElementById('grantSensorBtn').addEventListener('click', () => {
 });
 
 ui.resetBtn.addEventListener('click', () => {
-    if(confirm('End session and save data?')) resetTracking();
+    showConfirmation("Stop & Save?", "This will end the current session.", () => {
+        resetTracking();
+    });
 });
 
 document.getElementById('clearHistoryBtn').addEventListener('click', () => {
-    if(confirm('Permanently delete all logs?')) clearHistory();
+    showConfirmation("Delete Logs?", "This cannot be undone.", () => {
+        clearHistory();
+    });
 });
 
 // View Switching
-function switchView(v) {
-    if (v === 'tracker') {
-        ui.views.tracker.classList.remove('hidden-view');
-        ui.views.dashboard.classList.add('hidden-view');
-        ui.nav.tracker.classList.add('active-nav');
-        ui.nav.dashboard.classList.remove('active-nav');
-        // Resume 3D animation if needed
-    } else {
-        ui.views.tracker.classList.add('hidden-view');
-        ui.views.dashboard.classList.remove('hidden-view');
-        ui.nav.tracker.classList.remove('active-nav');
-        ui.nav.dashboard.classList.add('active-nav');
-        loadHistory();
-    }
-}
-ui.nav.tracker.addEventListener('click', () => switchView('tracker'));
-ui.nav.dashboard.addEventListener('click', () => switchView('dashboard'));
-
-// Goal Toggle UI
-ui.goalToggle.addEventListener('change', (e) => {
-    if(e.target.checked) {
-        ui.goalInputs.classList.remove('hidden');
-    } else {
-        ui.goalInputs.classList.add('hidden');
-    }
+ui.nav.tracker.addEventListener('click', () => {
+    ui.views.tracker.classList.remove('hidden-view');
+    ui.views.dashboard.classList.add('hidden-view');
+    ui.nav.tracker.classList.add('active-nav');
+    ui.nav.dashboard.classList.remove('active-nav');
 });
 
-// Initialization
+ui.nav.dashboard.addEventListener('click', () => {
+    ui.views.tracker.classList.add('hidden-view');
+    ui.views.dashboard.classList.remove('hidden-view');
+    ui.nav.tracker.classList.remove('active-nav');
+    ui.nav.dashboard.classList.add('active-nav');
+    loadHistory();
+});
+
+// Goal Toggle
+ui.goalToggle.addEventListener('change', (e) => {
+    if(e.target.checked) ui.goalInputs.classList.remove('hidden');
+    else ui.goalInputs.classList.add('hidden');
+});
+
+// Init
 initThreeJS();
 initDB();
+initWheelPicker();
 setInterval(updateRealTimeClock, 1000);
 updateRealTimeClock();
-console.log("XstepPulse 3D System Ready");
