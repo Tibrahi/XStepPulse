@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>XstepPulse 3D</title>
+    <title>XstepPulse 3D - Logs</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <meta name="theme-color" content="#0d1117">
     <link rel="stylesheet" href="./css/main.css">
     <link rel="icon" href="./assets/logo.png">
 </head>
-<body class="bg-slate-950 text-slate-100 flex flex-col relative overflow-hidden select-none">
+<body class="bg-slate-950 text-slate-100 flex flex-col relative overflow-hidden select-none h-screen w-screen">
 
     <div id="canvas-container"></div>
 
@@ -34,114 +34,34 @@
                 <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
                 OFFLINE
             </div>
-            <div id="goalStatus" class="hidden text-[10px] font-mono font-bold bg-emerald-950/60 text-emerald-300 px-2.5 py-1 rounded-full border border-emerald-500/30 animate-pulse">
-                TARGET ACTIVE
-            </div>
-            <div class="flex items-center gap-2 px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800">
-                <div id="liveIndicator" class="w-2 h-2 rounded-full bg-slate-600 transition-colors"></div>
-                <span id="liveText" class="text-[10px] font-mono text-slate-400 uppercase">IDLE</span>
-            </div>
         </div>
     </header>
 
-    <!-- Navigation Tabs -->
-    <nav class="w-full flex z-20 border-b border-slate-800 bg-slate-950/90 backdrop-blur-md shrink-0">
-        <button id="navTracker" class="flex-1 py-3.5 text-xs font-mono font-bold uppercase tracking-wider text-slate-400 hover:text-emerald-400 transition-colors active-nav">
-            Telemetry Monitor
-        </button>
-        <button id="navDashboard" class="flex-1 py-3.5 text-xs font-mono font-bold uppercase tracking-wider text-slate-400 hover:text-emerald-400 transition-colors">
-            Data Logs
-        </button>
-    </nav>
-
-    <!-- Main Viewport Area -->
-    <main class="flex-1 relative z-10 overflow-hidden flex flex-col md:flex-row">
+    <!-- Main Viewport Area (Data Logs Only) -->
+    <main class="flex-1 relative z-10 overflow-hidden flex flex-col">
         
-        <!-- Tracker View -->
-        <div id="viewTracker" class="w-full h-full flex flex-col md:flex-row relative">
-            <div class="hidden md:flex flex-1 items-center justify-center pointer-events-none"></div>
-
-            <div class="flex-1 flex flex-col p-6 overflow-y-auto h-full glass-panel md:border-l md:border-slate-800/80 md:max-w-md md:ml-auto custom-scrollbar">
-                
-                <!-- Session Timer Header -->
-                <div class="text-center my-4 p-4 rounded-xl bg-slate-900/40 border border-slate-800/60">
-                    <div class="text-slate-400 text-[10px] font-mono uppercase tracking-[0.25em] mb-2">Session Duration</div>
-                    <div id="timerDisplay" class="text-4xl font-mono font-bold text-slate-100 tracking-wider">
-                        00:00:00<span class="text-lg text-slate-500">.00</span>
-                    </div>
-                </div>
-
-                <!-- Stats Cards Grid -->
-                <div class="grid grid-cols-2 gap-4 mb-6">
-                    <div class="bg-slate-900/60 p-4 rounded-xl border border-slate-800/80 flex flex-col justify-between">
-                        <div class="text-slate-400 text-[10px] font-mono uppercase tracking-wider mb-2">Steps Detected</div>
-                        <div id="stepDisplay" class="text-3xl font-mono font-bold text-emerald-400">0</div>
-                    </div>
-                    <div class="bg-slate-900/60 p-4 rounded-xl border border-slate-800/80 flex flex-col justify-between">
-                        <div class="text-slate-400 text-[10px] font-mono uppercase tracking-wider mb-2">Distance (KM)</div>
-                        <div id="distanceDisplay" class="text-3xl font-mono font-bold text-slate-100">0.00</div>
-                    </div>
-                </div>
-
-                <!-- Auto-Stop Target Options -->
-                <div class="mb-6 bg-slate-900/60 p-4 rounded-xl border border-slate-800/80">
-                    <div class="flex justify-between items-center">
-                        <span class="text-xs font-mono font-bold text-slate-300 uppercase">Auto-Stop Target</span>
-                        <label class="inline-flex items-center cursor-pointer">
-                            <input type="checkbox" id="goalToggle" class="sr-only peer">
-                            <div class="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-300 after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500 relative"></div>
-                        </label>
-                    </div>
-                    
-                    <div id="goalInputs" class="hidden transition-all duration-300 mt-4 pt-4 border-t border-slate-800">
-                        <div class="flex gap-4 h-28 items-center justify-center bg-slate-950/80 rounded-lg p-3">
-                            <div class="flex-1 text-center">
-                                <label class="text-[10px] font-mono text-emerald-400 uppercase block mb-1">Target Steps</label>
-                                <input type="number" id="goalSteps" placeholder="5000" class="w-full bg-transparent border-b border-slate-700 text-slate-100 font-mono text-lg text-center p-1 focus:border-emerald-500 outline-none">
-                            </div>
-                            
-                            <div class="flex-1 h-full relative overflow-hidden flex flex-col items-center">
-                                <label class="text-[10px] font-mono text-emerald-400 uppercase block mb-1">Minutes Target</label>
-                                <div class="wheel-picker-container h-full w-full relative mt-1">
-                                    <div class="wheel-highlight"></div>
-                                    <ul id="goalMinutesWheel" class="wheel-scroll text-slate-400 font-mono text-sm">
-                                        <li class="snap-center py-2" data-val="0">Disabled</li>
-                                    </ul>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Action Controls -->
-                <div class="grid grid-cols-2 gap-4 mt-auto pt-4">
-                    <button id="toggleBtn" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 py-3.5 px-4 rounded-lg font-mono font-bold text-xs uppercase tracking-wider transition-colors shadow-lg shadow-emerald-500/10">
-                        Start System
-                    </button>
-                    <button id="resetBtn" class="bg-slate-900 border border-slate-800 hover:border-rose-500/50 hover:text-rose-400 text-slate-300 py-3.5 px-4 rounded-lg font-mono font-bold text-xs uppercase tracking-wider transition-colors">
-                        Stop & Save
-                    </button>
-                </div>
-
-            </div>
-        </div>
-
-        <!-- Dashboard View -->
-        <div id="viewDashboard" class="hidden-view w-full h-full p-6 md:p-10 overflow-y-auto bg-slate-950/90 z-30 custom-scrollbar">
+        <!-- Dashboard / Data Logs View -->
+        <div id="viewDashboard" class="w-full h-full p-6 md:p-10 overflow-y-auto bg-slate-950/90 z-30 custom-scrollbar">
             <div class="max-w-4xl mx-auto">
                 <div class="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
-                    <h2 class="text-xl font-mono font-bold text-slate-100 uppercase tracking-wide">Recorded Session Logs</h2>
+                    <div>
+                        <h2 class="text-xl font-mono font-bold text-slate-100 uppercase tracking-wide">Recorded Session Logs</h2>
+                        <p class="text-xs text-slate-400 font-mono mt-1">History of tracked steps and system metrics</p>
+                    </div>
                     <button id="clearHistoryBtn" class="text-xs font-mono text-rose-400 hover:text-rose-300 border border-rose-950 hover:border-rose-800 px-3 py-1.5 rounded-md transition-colors uppercase">
                         Purge Logs
                     </button>
                 </div>
-                <ul id="historyList" class="space-y-3 pb-20"></ul>
+                
+                <ul id="historyList" class="space-y-3 pb-20">
+                    <!-- Session log items render dynamically here -->
+                </ul>
             </div>
         </div>
 
     </main>
 
-    <!-- Modal Dialog -->
+    <!-- Confirmation Modal -->
     <div id="customModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 max-w-sm w-full shadow-2xl">
             <h3 id="modalTitle" class="text-slate-100 font-mono text-base font-bold mb-2">Confirm Action</h3>
@@ -164,20 +84,19 @@
         </div>
     </div>
 
-    <!-- Sensor Permission Modal -->
-    <div id="sensorRequest" class="hidden absolute inset-0 bg-slate-950/95 z-50 flex flex-col items-center justify-center text-center p-6 backdrop-blur-md">
-        <div class="w-14 h-14 border border-emerald-500/30 bg-emerald-500/10 rounded-full flex items-center justify-center mb-6">
-            <svg class="w-6 h-6 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-        </div>
-        <h3 class="text-slate-100 text-lg font-mono font-bold mb-2 uppercase tracking-wide">Sensor Access Required</h3>
-        <p class="text-slate-400 mb-6 max-w-xs text-xs leading-relaxed">This telemetry interface requires access to motion sensors to perform step detection.</p>
-        <button id="grantSensorBtn" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-mono font-bold text-xs uppercase tracking-wider py-3 px-8 rounded-lg transition-colors">
-            Initialize Sensors
-        </button>
-    </div>
-
     <script src="js/index.js"></script>
     <script>
+        // Real-time Clock
+        function updateClock() {
+            const clockEl = document.getElementById('realTimeClock');
+            if (clockEl) {
+                const now = new Date();
+                clockEl.textContent = now.toTimeString().split(' ')[0];
+            }
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
         // Offline status handling
         function updateOnlineStatus() {
             const offlineBadge = document.getElementById('offlineIndicator');
@@ -193,7 +112,7 @@
         window.addEventListener('offline', updateOnlineStatus);
         updateOnlineStatus();
 
-        // Register Service Worker for offline support
+        // Service Worker for offline availability
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('./sw.js')
